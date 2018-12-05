@@ -27,16 +27,17 @@ def parse_input(folder_name):
             folder_name - a string representing the path to the input folder
 
         Outputs:
-            (graph, num_buses, size_bus, constraints)
+            (graph, num_groups, size_group, constraints)
             graph - the graph as a NetworkX object
-            num_buses - an integer representing the number of buses you can allocate to
-            size_buses - an integer representing the number of students that can fit on a bus
-            constraints - a list where each element is a list vertices which represents a single rowdy group
+            num_groups - an integer representing the number of groups you can allocate to
+            size_groups - an integer representing the number of nodes that can fit on a group
+            constraints - a list where each element is a list vertices which represents a constraint
+                set where if the set is a subset of one subgraph in the solution, the nodes are ignored.
     '''
     graph = nx.read_gml(folder_name + "/graph.gml")
     parameters = open(folder_name + "/parameters.txt")
-    num_buses = int(parameters.readline())
-    size_bus = int(parameters.readline())
+    num_groups = int(parameters.readline())
+    size_group = int(parameters.readline())
     constraints = []
     
     for line in parameters:
@@ -44,7 +45,7 @@ def parse_input(folder_name):
         curr_constraint = [num.replace("'", "") for num in line.split(", ")]
         constraints.append(curr_constraint)
 
-    return graph, num_buses, size_bus, constraints
+    return graph, num_groups, size_group, constraints
 
 def acc_prob(old_cost, new_cost, temp):
     if new_cost < old_cost:
@@ -52,36 +53,36 @@ def acc_prob(old_cost, new_cost, temp):
     else:
         return math.exp((old_cost-new_cost)/temp)
 
-def move(state, num_buses, size_buses):
-    # Choose two buses, either switch two students, or pick one to move to the other.
+def move(state, num_groups, size_groups):
+    # Choose two groups, either switch two nodes, or pick one to move to the other.
     copy_state = deepcopy(state)
     swap_or_move = random.randint(0, 1)
 
-    bus1 = random.randint(0, num_buses - 1)
-    bus2 = random.randint(0, num_buses - 1)
-    student1 = random.randint(0, len(copy_state[bus1])-1)
-    student2 = random.randint(0, len(copy_state[bus2])-1)
+    group1 = random.randint(0, num_groups - 1)
+    group2 = random.randint(0, num_groups - 1)
+    node1 = random.randint(0, len(copy_state[group1])-1)
+    node2 = random.randint(0, len(copy_state[group2])-1)
 
     if swap_or_move == 0:
-        copy_state[bus1][student1], copy_state[bus2][student2] = copy_state[bus2][student2], copy_state[bus1][student1]
+        copy_state[group1][node1], copy_state[group2][node2] = copy_state[group2][node2], copy_state[group1][node1]
     else:
         
-        if len(copy_state[bus1]) == size_buses or len(copy_state[bus2]) <= 1:
-           copy_state[bus1][student1], copy_state[bus2][student2] = copy_state[bus2][student2], copy_state[bus1][student1]
+        if len(copy_state[group1]) == size_groups or len(copy_state[group2]) <= 1:
+           copy_state[group1][node1], copy_state[group2][node2] = copy_state[group2][node2], copy_state[group1][node1]
         else:
-            move_student = copy_state[bus2][student2]
-            copy_state[bus2].remove(move_student)
-            copy_state[bus1].append(move_student)
+            move_node = copy_state[group2][node2]
+            copy_state[group2].remove(move_node)
+            copy_state[group1].append(move_node)
     return copy_state
 
-def anneal(sol, num_buses, size_buses, graph, constraints):
+def anneal(sol, num_groups, size_groups, graph, constraints):
     old_cost = cost(sol, graph, constraints)
     temp = 1.0
     temp_min = 0.00001
     alpha = 0.90
     while temp > temp_min:
         for i in range(100):
-            new_sol =  move(sol, num_buses, size_buses)
+            new_sol =  move(sol, num_groups, size_groups)
             new_cost = cost(new_sol, graph, constraints)
             ap = acc_prob(old_cost, new_cost, temp)
             if ap > random.random():
@@ -93,82 +94,80 @@ def anneal(sol, num_buses, size_buses, graph, constraints):
 
 def cost(state, graph, constraints):
     graph_dup = graph.copy()
-    bus_assignments = {}
-    for bus in range(len(state)):
-        for student in state[bus]:
-            bus_assignments[student] = bus
+    group_assignments = {}
+    for group in range(len(state)):
+        for node in state[group]:
+            group_assignments[node] = group
     total_edges = graph_dup.number_of_edges()
 
     for i in range(len(constraints)):
-        buses = set()
-        for student in constraints[i]:
-            buses.add(bus_assignments[student])
-        if len(buses) <= 1:
-            for student in constraints[i]:
-                if student in graph_dup:
-                    graph_dup.remove_node(student)
+        groups = set()
+        for node in constraints[i]:
+            groups.add(group_assignments[node])
+        if len(groups) <= 1:
+            for node in constraints[i]:
+                if node in graph_dup:
+                    graph_dup.remove_node(node)
     
     score = 0
     for edge in graph_dup.edges():
-        if bus_assignments[edge[0]] == bus_assignments[edge[1]]:
+        if group_assignments[edge[0]] == group_assignments[edge[1]]:
             score += 1
     final_score = 1 - (score / total_edges)
     return final_score
 
 
 
-def initial(graph, num_buses, size_bus):
-    buses = []
-    bus_nums = [x for x in range(num_buses)]
-    for i in range(num_buses):
-        buses.append([])
-    students = list(graph.nodes)
-    first_students = random.sample(students, num_buses)
-    for i in range(len(first_students)):
-        students.remove(first_students[i])
-        buses[i].append(first_students[i])
+def initial(graph, num_groups, size_group):
+    groups = []
+    group_nums = [x for x in range(num_groups)]
+    for i in range(num_groups):
+        groups.append([])
+    nodes = list(graph.nodes)
+    first_nodes = random.sample(nodes, num_groups)
+    for i in range(len(first_nodes)):
+        nodes.remove(first_nodes[i])
+        groups[i].append(first_nodes[i])
 
-    for s in students:
-        bus = random.choice(bus_nums)
-        buses[bus].append(s)
-        if len(buses[bus]) == size_bus:
-            bus_nums.remove(bus)
-    return buses
+    for s in nodes:
+        group = random.choice(group_nums)
+        groups[group].append(s)
+        if len(groups[group]) == size_group:
+            group_nums.remove(group)
+    return groups
 
 def main():
     '''
         Main method which iterates over all inputs and calls `solve` on each.
-        The student should modify `solve` to return their solution and modify
-        the portion which writes it to a file to make sure their output is
-        formatted correctly.
+        
     '''
-    size_categories = ["medium"] #["small", "medium", "large"]
+    folder_names = ["medium"] 
     if not os.path.isdir(path_to_outputs):
         os.mkdir(path_to_outputs)
 
-    for size in size_categories:
-        category_path = path_to_inputs + "/" + size
-        output_category_path = path_to_outputs + "/" + size
+    for folder in folder_names:
+        category_path = path_to_inputs + "/" + folder
+        output_category_path = path_to_outputs + "/" + folder
         category_dir = os.fsencode(category_path)
         
         if not os.path.isdir(output_category_path):
             os.mkdir(output_category_path)
 
-        tracker = open(size + "tracker.txt", 'w')
+        tracker = open(folder + "tracker.txt", 'w')
         tracker.close()
 
         for input_folder in os.listdir(category_dir):
             input_name = os.fsdecode(input_folder) 
             print(input_name)
-            graph, num_buses, size_bus, constraints = parse_input(category_path + "/" + input_name)
+            graph, num_groups, size_group, constraints = parse_input(category_path + "/" + input_name)
 
             
-            min_state = initial(graph, num_buses, size_bus)
+            min_state = initial(graph, num_groups, size_group)
             min_cost = cost(min_state, graph, constraints)
 
-            for i in range(3):
-                temp_state = initial(graph, num_buses, size_bus)
-                result, fin_cost = anneal(temp_state, num_buses, size_bus, graph, constraints)
+            for i in range(3): #Runs multiple times, can reduce to 1 for a single iteration 
+                temp_state = initial(graph, num_groups, size_group)
+                result, fin_cost = anneal(temp_state, num_groups, size_group, graph, constraints)
                 if fin_cost < min_cost:
                     min_cost = fin_cost
                     min_state = result
@@ -177,11 +176,7 @@ def main():
 
             print("Final score for " + input_name + ": " + str(1-min_cost))
             output_file = open(output_category_path + "/" + input_name + ".out", "w")
-            tracker = open(size + "tracker.txt", 'a+')
-            #TODO: modify this to write your solution to your 
-            #      file properly as it might not be correct to 
-            #      just write the variable solution to a file
-        
+            tracker = open(folder + "tracker.txt", 'a+')
             for i in min_state:
                 output_file.write(str(list(i)) + '\n')
 
